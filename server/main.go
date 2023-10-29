@@ -54,15 +54,6 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) {
-	/// Message Structure
-	///
-	/// NICKNAME_REQUEST [NICKNAME_LEN]
-	///  - Very first message sent from the client. Requests a nickname
-	///  - All other bytes in the message are ignored
-	///
-	/// MESSAGE []
-	///  - [ID_LEN]: UUID of client
-	///  - [*]: Text message
 	defer conn.Close()
 
 	var clientId string
@@ -98,8 +89,14 @@ func handleConnection(conn net.Conn) {
 			nickname = requestedNickname
 
 			// Add client to list of clients
-			log.Printf("[NEWC] Adding %v (%v)", requestedNickname, clientId)
+			log.Printf("[NEWC] Adding %v (%v)", nickname, clientId)
 			*clients = append(*clients, conn)
+			bytesToWrite := []byte(transport.RspNewClient)
+			zeroPadding := make([]byte, 16)
+			copy(zeroPadding, nickname)
+			bytesToWrite = append(bytesToWrite, zeroPadding...)
+			bytesToWrite = append(bytesToWrite, transport.RspEOT)
+			writeToAllClients(bytesToWrite)
 			mutex.Unlock()
 
 			// Give client their ID
@@ -134,14 +131,7 @@ func handleConnection(conn net.Conn) {
 			Nickname: nickname,
 			Body:     message,
 		})
-		for _, client := range *clients {
-			if client == conn {
-				continue
-			}
-			if _, err := client.Write(bytesToWrite); err != nil {
-				log.Printf("[EROR] %v (%v): %v", nickname, clientId, err)
-			}
-		}
+		writeToAllClientsExcept(bytesToWrite, conn)
 		mutex.Unlock()
 	}
 
@@ -160,4 +150,26 @@ func handleConnection(conn net.Conn) {
 	}
 	*clients = append((*clients)[:clientIndex], (*clients)[clientIndex+1:]...)
 	mutex.Unlock()
+}
+
+func writeToAllClients(bytesToWrite []byte) {
+	for _, client := range *clients {
+		// if client == conn {
+		// 	continue
+		// }
+		if _, err := client.Write(bytesToWrite); err != nil {
+			log.Printf("[EROR] %v", err)
+		}
+	}
+}
+
+func writeToAllClientsExcept(bytesToWrite []byte, conn net.Conn) {
+	for _, client := range *clients {
+		if client == conn {
+			continue
+		}
+		if _, err := client.Write(bytesToWrite); err != nil {
+			log.Printf("[EROR] %v", err)
+		}
+	}
 }
