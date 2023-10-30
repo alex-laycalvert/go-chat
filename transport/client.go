@@ -1,8 +1,8 @@
 package transport
 
 import (
-	"net"
 	"bufio"
+	"net"
 )
 
 type Client struct {
@@ -48,45 +48,33 @@ func (client *Client) RequestNickname(nickname string) (*Profile, bool) {
 	}, true
 }
 
-func (client *Client) StartReceiving(messageChannel chan string) {
+func (client *Client) StartReceiving(messageChannel chan Message) {
 	reader := bufio.NewReader(client.connection)
 
 	for {
 		buffer, err := ReadFromStream(reader, RspEOT)
 		if err != nil {
 			if err.Error() == "EOF" {
-				messageChannel <- "Server disconnected, please close and reconnect."
+				messageChannel <- Message{Type: MsgServerDisconnect}
 				break
 			} else {
-				messageChannel <- "[EROR] " + err.Error()
+				messageChannel <- Message{Type: MsgError, Body: err.Error()}
 			}
 		}
-		messageType := string(buffer[:LenMessageType])
-		switch messageType {
-		case RspMessage:
-			nickname := TrimBufToString(buffer[LenMessageType:LenNickname])
-			message := TrimBufToString(buffer[LenNickname+LenMessageType:])
-			messageChannel <- nickname + ": " + message
-			continue
-		case RspDisconnect:
-			nickname := TrimBufToString(buffer[LenMessageType:])
-			messageChannel <- nickname + " disconnected."
-			continue
-		case RspError:
-			err := TrimBufToString(buffer[LenMessageType:])
-			messageChannel <- "[EROR] " + err
-			continue
-		case RspNewClient:
-			nickname := TrimBufToString(buffer[LenMessageType:])
-			messageChannel <- nickname + " just joined."
-		default:
+		message, err := parseMessage(buffer)
+		if err != nil {
+			// failed to parse buffer
 			continue
 		}
+		messageChannel <- *message
 	}
 }
 
-func (client *Client) Send(message string) error {
-	bytesToWrite := []byte(message + string(RspEOT))
-	_, err := client.connection.Write(bytesToWrite)
+func (client *Client) Send(messageStr string) error {
+	message := Message{
+		Type: MsgClientMessage,
+		Body: messageStr,
+	}
+	_, err := client.connection.Write(message.Bytes())
 	return err
 }

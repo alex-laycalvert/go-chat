@@ -13,7 +13,7 @@ func main() {
 	client := initializeClient(args)
 	defer client.Close()
 	_ = requestNickname(client)
-	messageChannel := make(chan string)
+	messageChannel := make(chan transport.Message)
 	go client.StartReceiving(messageChannel)
 	go processUserInput(client)
 	processIncomingMessages(messageChannel)
@@ -73,11 +73,11 @@ func processUserInput(client *transport.Client) {
 	}
 }
 
-func processIncomingMessages(messageChannel chan string) {
+func processIncomingMessages(messageChannel chan transport.Message) {
 	for {
 		select {
 		case message := <-messageChannel:
-			log.Printf("%v", message)
+			log.Printf("%v", message.String())
 		}
 	}
 }

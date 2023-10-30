@@ -18,11 +18,6 @@ const (
 	LenNickname      = 16
 )
 
-type Message struct {
-	Nickname string
-	Body     string
-}
-
 // Converts the buffer to a string and removes all trailing EOT's and NULL characters
 func TrimBufToString(buf []byte) string {
 	if len(buf) == 0 {

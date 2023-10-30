@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"log"
 	"net"
-	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -88,12 +87,12 @@ func (server *Server) handleConnection(conn net.Conn) {
 			// Add client to list of clients
 			log.Printf("[NEWC] Adding %v (%v)", nickname, clientId)
 			*server.clients = append(*server.clients, conn)
-			bytesToWrite := []byte(RspNewClient)
-			zeroPadding := make([]byte, 16)
-			copy(zeroPadding, nickname)
-			bytesToWrite = append(bytesToWrite, zeroPadding...)
-			bytesToWrite = append(bytesToWrite, RspEOT)
-			server.writeToAllClientsExcept(bytesToWrite, nil)
+			message := Message{
+				Type:     MsgNewClient,
+				Nickname: nickname,
+			}
+			server.writeToAllClientsExcept(message.Bytes(), nil)
+			server.history = append(server.history, message)
 			server.mutex.Unlock()
 
 			// Give client their ID
@@ -105,47 +104,52 @@ func (server *Server) handleConnection(conn net.Conn) {
 		conn.Write([]byte("NICKNAME_TAKEN"))
 	}
 
-	for {
+	isConnected := true
+	for isConnected {
 		buffer, err := ReadFromStream(reader, RspEOT)
 		if err != nil {
+			server.history = append(server.history, Message{
+				Type:     MsgDisconnect,
+				Nickname: nickname,
+			})
 			break
 		}
-		if len(buffer) == 0 {
-			// Invalid message
-			log.Printf("[EROR] %v (%v): Invalid or Empty Message", nickname, clientId)
-			continue
+		message, err := parseMessage(buffer)
+		if err != nil {
+			log.Printf("[EROR] %v", err)
 		}
-		message := TrimBufToString(buffer)
-		message = strings.TrimSpace(message)
 		server.mutex.Lock()
-		bytesToWrite := []byte(RspMessage)
-		zeroPadding := make([]byte, 16)
-		copy(zeroPadding, nickname)
-		bytesToWrite = append(bytesToWrite, zeroPadding...)
-		bytesToWrite = append(bytesToWrite, []byte(message+string(RspEOT))...)
-		log.Printf("[MESG] %v: %v", nickname, message)
-		server.history = append(server.history, Message{
-			Nickname: nickname,
-			Body:     message,
-		})
-		server.writeToAllClientsExcept(bytesToWrite, conn)
+
+		switch message.Type {
+		case MsgClientMessage:
+			message.Type = MsgMessage
+			message.Nickname = nickname
+			server.writeToAllClientsExcept(message.Bytes(), conn)
+			log.Printf("[MESG] %v: %v", message.Nickname, message.Body)
+			break
+		case MsgDisconnect:
+			isConnected = false
+			break
+		}
+		server.history = append(server.history, *message)
 		server.mutex.Unlock()
 	}
 
 	log.Printf("[DISC] %v (%v)", nickname, clientId)
 	server.mutex.Lock()
+	message := Message{
+		Type:     MsgDisconnect,
+		Nickname: nickname,
+	}
 	var clientIndex int
 	for i, client := range *server.clients {
 		if client == conn {
 			clientIndex = i
 			continue
 		}
-		bytesToWrite := []byte(RspDisconnect + nickname + string(RspEOT))
-		if _, err := client.Write(bytesToWrite); err != nil {
-			log.Printf("[EROR] %v (%v): %v", nickname, clientId, err)
-		}
 	}
 	*server.clients = append((*server.clients)[:clientIndex], (*server.clients)[clientIndex+1:]...)
+	server.writeToAllClientsExcept(message.Bytes(), conn)
 	server.mutex.Unlock()
 }
 
