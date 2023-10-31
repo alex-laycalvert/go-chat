@@ -13,6 +13,8 @@ const (
 	MsgDisconnect
 	MsgServerDisconnect
 	MsgError
+	MsgNicknameRequest
+	MsgRejoin
 )
 
 type Message struct {
@@ -25,14 +27,14 @@ func (message *Message) Bytes() []byte {
 	bytesToWrite := make([]byte, 0)
 	bytesToWrite = append(bytesToWrite, byte(message.Type))
 	switch message.Type {
-	case MsgNewClient, MsgDisconnect:
+	case MsgNewClient, MsgDisconnect, MsgNicknameRequest:
 		bytesToWrite = append(bytesToWrite, padNicknameBytes(message.Nickname)...)
 		break
 	case MsgMessage:
 		bytesToWrite = append(bytesToWrite, padNicknameBytes(message.Nickname)...)
 		bytesToWrite = append(bytesToWrite, []byte(message.Body)...)
 		break
-	case MsgClientMessage, MsgError:
+	case MsgClientMessage, MsgError, MsgRejoin:
 		bytesToWrite = append(bytesToWrite, []byte(message.Body)...)
 		break
 	case MsgServerDisconnect:
@@ -48,12 +50,14 @@ func (message *Message) String() string {
 		return message.Nickname + " just joined."
 	case MsgMessage:
 		return message.Nickname + ": " + message.Body
-	case MsgClientMessage, MsgError:
+	case MsgClientMessage, MsgError, MsgRejoin:
 		return message.Body
 	case MsgDisconnect:
 		return message.Nickname + " left."
 	case MsgServerDisconnect:
 		return "Disconnected from server."
+	case MsgNicknameRequest:
+		return "Requesting " + message.Nickname
 	default:
 		return ""
 	}
@@ -77,14 +81,14 @@ func parseMessage(data []byte) (*Message, error) {
 	message := Message{Type: msgType}
 
 	switch msgType {
-	case MsgNewClient, MsgDisconnect:
+	case MsgNewClient, MsgDisconnect, MsgNicknameRequest:
 		message.Nickname = TrimBufToString(data[1:LenNickname])
 		break
 	case MsgMessage:
 		message.Nickname = TrimBufToString(data[1:LenNickname])
 		message.Body = TrimBufToString(data[LenNickname:])
 		break
-	case MsgClientMessage, MsgError:
+	case MsgClientMessage, MsgError, MsgRejoin:
 		message.Body = TrimBufToString(data[1:])
 		break
 	}
@@ -93,7 +97,7 @@ func parseMessage(data []byte) (*Message, error) {
 
 func isValidMsgType(val MsgType) bool {
 	switch val {
-	case MsgNewClient, MsgMessage, MsgClientMessage, MsgDisconnect, MsgServerDisconnect, MsgError:
+	case MsgNewClient, MsgMessage, MsgClientMessage, MsgDisconnect, MsgServerDisconnect, MsgError, MsgNicknameRequest, MsgRejoin:
 		return true
 	default:
 		return false

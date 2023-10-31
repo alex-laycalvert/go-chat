@@ -51,59 +51,9 @@ func (server *Server) Start() {
 
 func (server *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
-
 	var clientId string
 	var nickname string
-
 	reader := bufio.NewReader(conn)
-
-	// Nickname request
-	buffer := make([]byte, LenNickname)
-	for {
-		_, err := reader.Read(buffer)
-		if err != nil {
-			log.Printf("[EROR] %v", err)
-			return
-		}
-		requestedNickname := TrimBufToString(buffer)
-		if requestedNickname[len(requestedNickname)-1] == '\n' {
-			requestedNickname = requestedNickname[:len(requestedNickname)-1]
-		}
-		log.Printf("[NNRQ] Requesting \"%v\"", requestedNickname)
-		server.mutex.Lock()
-		if _, found := server.assignedNicknames[requestedNickname]; !found {
-			log.Printf("[NNRQ] \"%v\" approved", requestedNickname)
-
-			// Add nickname
-			server.assignedNicknames[requestedNickname] = struct{}{}
-
-			// Assign client an ID
-			clientId = uuid.NewString()
-
-			// Add client ID to ID -> nickname map
-			server.clientIds[clientId] = requestedNickname
-			nickname = requestedNickname
-
-			// Add client to list of clients
-			log.Printf("[NEWC] Adding %v (%v)", nickname, clientId)
-			*server.clients = append(*server.clients, conn)
-			message := Message{
-				Type:     MsgNewClient,
-				Nickname: nickname,
-			}
-			server.writeToAllClientsExcept(message.Bytes(), nil)
-			server.history = append(server.history, message)
-			server.mutex.Unlock()
-
-			// Give client their ID
-			conn.Write([]byte(clientId))
-			break
-		}
-		server.mutex.Unlock()
-		log.Printf("[NNRQ] \"%v\" taken", requestedNickname)
-		conn.Write([]byte("NICKNAME_TAKEN"))
-	}
-
 	isConnected := true
 	for isConnected {
 		buffer, err := ReadFromStream(reader, RspEOT)
@@ -119,8 +69,58 @@ func (server *Server) handleConnection(conn net.Conn) {
 			log.Printf("[EROR] %v", err)
 		}
 		server.mutex.Lock()
-
 		switch message.Type {
+		case MsgNicknameRequest:
+			if _, found := server.assignedNicknames[message.Nickname]; !found {
+				log.Printf("[NNRQ] \"%v\" approved", message.Nickname)
+
+				// Add nickname
+				server.assignedNicknames[message.Nickname] = struct{}{}
+
+				// Assign client an ID
+				clientId = uuid.NewString()
+
+				// Add client ID to ID -> nickname map
+				server.clientIds[clientId] = message.Nickname
+				nickname = message.Nickname
+
+				// Add client to list of clients
+				log.Printf("[NEWC] Adding %v (%v)", nickname, clientId)
+				*server.clients = append(*server.clients, conn)
+				message := Message{
+					Type:     MsgNewClient,
+					Nickname: nickname,
+				}
+				server.writeToAllClientsExcept(message.Bytes(), nil)
+				server.history = append(server.history, message)
+
+				// Give client their ID
+				conn.Write([]byte(clientId))
+				break
+			}
+			log.Printf("[NNRQ] \"%v\" taken", message.Nickname)
+			conn.Write([]byte("NICKNAME_TAKEN"))
+			break
+		case MsgRejoin:
+			clientNickname, found := server.clientIds[message.Body]
+			if !found {
+				msg := Message{
+					Type: MsgError,
+					Body: "ID not found",
+				}
+				conn.Write(msg.Bytes())
+				break
+			}
+			clientId = message.Body
+			nickname = clientNickname
+			*server.clients = append(*server.clients, conn)
+			message := Message{
+				Type:     MsgNewClient,
+				Nickname: nickname,
+			}
+			server.writeToAllClientsExcept(message.Bytes(), nil)
+			server.history = append(server.history, message)
+			break
 		case MsgClientMessage:
 			message.Type = MsgMessage
 			message.Nickname = nickname

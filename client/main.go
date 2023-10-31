@@ -39,6 +39,11 @@ func requestNickname(client *transport.Client) *transport.Profile {
 	for {
 		buffer, err := transport.ReadFromStream(termReader, transport.RspNewline)
 		if err != nil {
+			client.Close()
+			if err.Error() == "EOF" {
+				log.Printf("Exiting...")
+				os.Exit(0)
+			}
 			log.Printf("Error: %v", err)
 			os.Exit(1)
 		}
@@ -56,6 +61,7 @@ func processUserInput(client *transport.Client) {
 		buffer, err := transport.ReadFromStream(reader, transport.RspNewline)
 		if err != nil {
 			if err.Error() == "EOF" {
+				client.Close()
 				log.Printf("Disconnecting...")
 				os.Exit(0)
 				break

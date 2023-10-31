@@ -31,7 +31,11 @@ func (client *Client) Close() {
 
 func (client *Client) RequestNickname(nickname string) (*Profile, bool) {
 	reader := bufio.NewReader(client.connection)
-	if _, err := client.connection.Write([]byte(nickname)); err != nil {
+	message := Message{
+		Type:     MsgNicknameRequest,
+		Nickname: nickname,
+	}
+	if _, err := client.connection.Write(message.Bytes()); err != nil {
 		return nil, false
 	}
 	buffer := make([]byte, LenID)
